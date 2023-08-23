@@ -20,7 +20,7 @@ module LockableDictionary =
 
     let create<'key, 'value> (defaultValueFactory: unit -> 'value) : LockableDictionary<'key, 'value> =
         {| underlyingDictionary = ConcurrentDictionary()
-           criticalLock = Lock.create()
+           criticalLock = Lock.create ()
            defaultValueFactory = defaultValueFactory |}
 
     let withLockOnKeyAsync<'key, 'value, 'returnValue>
@@ -32,7 +32,7 @@ module LockableDictionary =
             lock dictionary.criticalLock (fun _ ->
                 match dictionary.underlyingDictionary |> ConcurrentDictionary.tryFind key with
                 | None ->
-                    let newLock = Lock.create()
+                    let newLock = Lock.create ()
 
                     assert
                         (dictionary.underlyingDictionary.TryAdd(key, (newLock, dictionary.defaultValueFactory ())) = true)

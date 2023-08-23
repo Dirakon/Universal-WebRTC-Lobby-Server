@@ -8,11 +8,11 @@
 
     <ItemGroup>
         <Compile Include="Domain.fs"/>
-        <Compile Include="ImplementationTypes.fs"/>
         <Compile Include="MessagingDomain.fs"/>
         <Compile Include="Utils.fs"/>
-        <Compile Include="WebsocketMessagingImplementation.fs"/>
+        <Compile Include="MultiLock.fs"/>
         <Compile Include="LockableDictionary.fs"/>
+        <Compile Include="WebsocketMessagingImplementation.fs"/>
         <Compile Include="Program.fs"/>
     </ItemGroup>
 

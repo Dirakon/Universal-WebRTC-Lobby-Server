@@ -13,9 +13,9 @@ open Suave.WebSocket
 
 open WebSocket_Matchmaking_Server
 open WebSocket_Matchmaking_Server.Domain
-open WebSocket_Matchmaking_Server.ImplementationTypes
 open WebSocket_Matchmaking_Server.LockableDictionary
 open WebSocket_Matchmaking_Server.MessagingDomain
+open WebSocket_Matchmaking_Server.MultiLock
 open WebSocket_Matchmaking_Server.WebsocketMessagingImplementation
 open WebSocket_Matchmaking_Server.Utils
 open YoLo
@@ -42,11 +42,16 @@ let getConnectionId () =
         lastConnectionId - 1)
 
 
-let handleCreateLobbyRequest (connectionInfo: ConnectionInfo) (request: LobbyCreationRequest) (webSocket: WebSocket) =
+let handleCreateLobbyRequest
+    (connectionInfo: ConnectionInfo)
+    (request: LobbyCreationRequest)
+    (webSocket: WebSocket)
+    (connectionId: ConnectionId)
+    =
     socket {
         let response =
             match connectionInfo.connectionState with
-            | JustJoined -> LobbyCreationFailure {| comment = Some("Did not join a domain first") |} 
+            | JustJoined -> LobbyCreationFailure {| comment = Some("Did not join a domain first") |}
             | ChosenDomain stateInfo ->
                 if lobbyCreationRequestInvalid request then
                     LobbyCreationFailure {| comment = Some("Invalid lobby info") |}
@@ -58,7 +63,9 @@ let handleCreateLobbyRequest (connectionInfo: ConnectionInfo) (request: LobbyCre
                             |> Seq.maxTotal
                             |> Option.defaultValue 0
 
-                        let hostPlayer: Player = {| webSocket = webSocket |}
+                        let hostPlayer: Player =
+                            {| webSocket = webSocket
+                               connectionId = connectionId |}
 
                         let newLobby: Lobby =
                             {| name = request.lobbyName
@@ -155,36 +162,61 @@ let handleRelayRequest
         return connectionInfo
     }
 
+let lockOnLobbyAndAllNonHostPlayers (lobby: Lobby) (multiLock: MultiLock) =
+    let rec lockOnPlayersInner (playersLockedOn: Player list) =
+        multiLock.addLock lobby.lobbyLock
+        let playersToUnlock, playersToLock = failwith "TODO: some filtering"
+
+        if playersToUnlock = [] && playersToLock = [] then
+            ()
+        else
+            assert multiLock.tryRemoveLock lobby.lobbyLock
+
+            playersToUnlock
+            |> Seq.map (fun player ->
+                assert multiLock.tryRemoveLock (failwith "TODO: GET LOCK STRAIGHT FROM LOCKABLE DICTIONARY SOMEHOW!"))
+            |> ignore
+
+            playersToLock
+            |> Seq.map (fun player ->
+                multiLock.addLock (failwith "TODO: GET LOCK STRAIGHT FROM LOCKABLE DICTIONARY SOMEHOW!"))
+            |> ignore
+
+            lockOnPlayersInner (playersLockedOn |> List.except playersToUnlock |> List.append playersToLock)
+
+    lockOnPlayersInner []
+
 let handleLeaveLobbyRequest (connectionInfo: ConnectionInfo) (webSocket: WebSocket) =
     socket {
         match connectionInfo.connectionState with
         | InsideLobby stateInfo ->
             let lobby = stateInfo.lobby
             let peerId = stateInfo.peerId
-            do! lock stateInfo.lobby.lobbyLock (fun _ ->
-                socket {
-                    if peerId = hostPeerId then
-                                failwith "TODO: CAREFULLY THINK ABOUT THIS - YOU CANT JUST LOCK ON OTHER CONNECTION AS THERE IS A CHANCE THEY ARE LOCKED ON LOBBY, CAUSING DEADLOCK"
-                                // TODO destroy the lobby and notify others about this stuff
-                    
-                                // TODO: consider this *stupid solution*: lock on lobbies, copy all player ids, unlock lobby, lock on players in order
-                                // lock on lobby *again*, see if you locked everyone. If not, unlock wrongly locked and lock not-locked.
-                                // repeat until you locked EVERYONE. THEN and only THEN dont unlock the lobby and actually notify everyonehttps://github.com/new
-                                // wtf is this... i love it... got anything more, y'know, deterministic then this ^ ?
-                    else
-                                for KeyValue(otherPlayerPeerId, otherPlayer) in lobby.players do
-                                    do!
-                                        websocketSend
-                                            otherPlayer.webSocket
-                                            (PlayerLeaveNotification {| leaverId = peerId |})
-                                        |> SocketMonad.saveWith () // TODO: nothing good can come out of people not responding. maybe fail now? maybe kick them?
-                    }
-                )
+
+            if peerId = hostPeerId then
+                use allPlayerLock = new MultiLock()
+                lockOnLobbyAndAllNonHostPlayers lobby allPlayerLock
+                // TODO: you have full control now. Destroy the lobby, push leave notifications to all!
+            else
+                do!
+                    lock stateInfo.lobby.lobbyLock (fun _ ->
+                        socket {
+                            for KeyValue(otherPlayerPeerId, otherPlayer) in lobby.players do
+                                do!
+                                    websocketSend
+                                        otherPlayer.webSocket
+                                        (PlayerLeaveNotification {| leaverId = peerId |})
+                                    |> SocketMonad.saveWith () // TODO: nothing good can come out of people not responding. maybe fail now? maybe kick them?
+                        })
+
             do! websocketSend webSocket (LobbyLeaveNotification {| comment = Some("Successfully left the lobby") |})
-            return {|connectionInfo with connectionState = (ChosenDomain {|domain = stateInfo.domain|})|}
-         | _ ->
-             do! websocketSend webSocket (LobbyLeaveFailure {| comment = Some("Not inside a lobby to leave") |})
-             return connectionInfo
+
+            return
+                {| connectionInfo with
+                    connectionState = (ChosenDomain {| domain = stateInfo.domain |}) |}
+        | _ ->
+            do! websocketSend webSocket (LobbyLeaveFailure {| comment = Some("Not inside a lobby to leave") |})
+            return connectionInfo
     }
 
 let handleJoinLobbyRequest
@@ -192,6 +224,7 @@ let handleJoinLobbyRequest
     (lobbyId: LobbyId)
     (lobbyPassword: Option<string>)
     (webSocket: WebSocket)
+    (connectionId: ConnectionId)
     =
     socket {
         match connectionInfo.connectionState with
@@ -247,7 +280,9 @@ let handleJoinLobbyRequest
                                             (PlayerJoinNotification {| joineeId = assignedPeerId |})
                                         |> SocketMonad.saveWith () // TODO: nothing good can come out of people not responding. maybe fail now? maybe kick them?
 
-                                lobby.players.[assignedPeerId] <- {| webSocket = webSocket |}
+                                lobby.players.[assignedPeerId] <-
+                                    {| webSocket = webSocket
+                                       connectionId = connectionId |}
 
                                 return
                                     {| connectionInfo with
@@ -263,10 +298,12 @@ let rec messageHandlingWorkflow
     (message: WebsocketClientMessage)
     (connectionInfo: ConnectionInfo)
     (webSocket: WebSocket)
+    (connectionId: ConnectionId)
     =
     match message with
-    | LobbyCreationRequest request -> handleCreateLobbyRequest connectionInfo request webSocket
-    | LobbyJoinRequest request -> handleJoinLobbyRequest connectionInfo request.lobbyId request.password webSocket
+    | LobbyCreationRequest request -> handleCreateLobbyRequest connectionInfo request webSocket connectionId
+    | LobbyJoinRequest request ->
+        handleJoinLobbyRequest connectionInfo request.lobbyId request.password webSocket connectionId
     | LobbyListRequest -> handleListLobbiesRequest connectionInfo webSocket
     | DomainJoinRequest request -> handleDomainJoinRequest connectionInfo request.domainName webSocket
     | LobbySealRequest -> handleLeaveLobbyRequest connectionInfo webSocket // TODO: maybe something unique instead?
@@ -289,7 +326,7 @@ let wsWithErrorHandling (webSocket: WebSocket) (context: HttpContext) =
     let rec messageHandling (message: WebsocketClientMessage) =
         connectionsInformation
         |> LockableDictionary.withLockOnKeyAsync connectionId (fun connectionInfo ->
-            messageHandlingWorkflow message connectionInfo webSocket
+            messageHandlingWorkflow message connectionInfo webSocket connectionId
             |> Async.map (fun res ->
                 match res with
                 | Choice1Of2 newConnectionInfo -> ((Choice1Of2()), newConnectionInfo)

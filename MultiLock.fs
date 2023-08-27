@@ -3,6 +3,7 @@ module WebSocket_Matchmaking_Server.MultiLock
 open System
 open System.Threading
 open WebSocket_Matchmaking_Server.Domain
+open WebSocket_Matchmaking_Server.Utils
 
 
 type MultiLock() =

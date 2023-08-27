@@ -13,6 +13,7 @@
         <Compile Include="MultiLock.fs"/>
         <Compile Include="LockableDictionary.fs"/>
         <Compile Include="WebsocketMessagingImplementation.fs"/>
+        <Compile Include="WebApp.fs"/>
         <Compile Include="Program.fs"/>
     </ItemGroup>
 

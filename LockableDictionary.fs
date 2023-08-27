@@ -2,6 +2,7 @@ module WebSocket_Matchmaking_Server.LockableDictionary
 
 open System.Collections.Concurrent
 open WebSocket_Matchmaking_Server.Domain
+open WebSocket_Matchmaking_Server.Utils
 
 
 
@@ -28,34 +29,38 @@ module LockableDictionary =
         (someFunction: 'value -> Async<'returnValue * 'value>)
         (dictionary: LockableDictionary<'key, 'value>)
         =
-        let keyLock =
-            lock dictionary.criticalLock (fun _ ->
-                match dictionary.underlyingDictionary |> ConcurrentDictionary.tryFind key with
-                | None ->
-                    let newLock = Lock.create ()
-
-                    assert
-                        (dictionary.underlyingDictionary.TryAdd(key, (newLock, dictionary.defaultValueFactory ())) = true)
-
-                    newLock
-                | Some(lock, value) -> lock)
-
-        lock keyLock (fun _ ->
-            async {
-                let oldValue =
+        async {
+            let keyLock =
+                lock dictionary.criticalLock (fun _ ->
                     match dictionary.underlyingDictionary |> ConcurrentDictionary.tryFind key with
                     | None ->
-                        failwith
-                            "Logical error! Not supposed to happen since we create this entry above. For this reason, never remove an entry, only add new ones"
-                    | Some(key, value) -> value
+                        let newLock = Lock.create ()
 
-                let! returnValue, newValueToSet = someFunction oldValue
+                        assert
+                            (dictionary.underlyingDictionary.TryAdd(key, (newLock, dictionary.defaultValueFactory ())) = true)
 
-                lock dictionary.criticalLock (fun _ ->
-                    dictionary.underlyingDictionary.[key] <- (keyLock, newValueToSet))
+                        newLock
+                    | Some(lock, value) -> lock)
 
-                return returnValue
-            })
+            return!
+                keyLock
+                |> Lock.lockAsync (fun _ ->
+                    async {
+                        let oldValue =
+                            match dictionary.underlyingDictionary |> ConcurrentDictionary.tryFind key with
+                            | None ->
+                                failwith
+                                    "Logical error! Not supposed to happen since we create this entry above. For this reason, never remove an entry, only add new ones"
+                            | Some(key, value) -> value
+
+                        let! returnValue, newValueToSet = someFunction oldValue
+
+                        lock dictionary.criticalLock (fun _ ->
+                            dictionary.underlyingDictionary.[key] <- (keyLock, newValueToSet))
+
+                        return returnValue
+                    })
+        }
 
     let withLockOnKey<'key, 'value, 'returnValue>
         (key: 'key)

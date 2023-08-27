@@ -1,5 +1,8 @@
 module WebSocket_Matchmaking_Server.Utils
 
+open System.Threading
+open WebSocket_Matchmaking_Server.Domain
+
 
 
 module Seq =
@@ -15,3 +18,16 @@ module SocketMonad =
             match res with
             | Choice1Of2 success -> Choice1Of2 success
             | Choice2Of2 fail -> Choice1Of2 failValue)
+
+module Lock =
+    let create () : Lock = new Semaphore(1, 1)
+
+    let rec lockAsync (someAsyncFunction: unit -> Async<'a>) (lock: Lock) =
+        async {
+            lock.WaitOne() |> ignore
+
+            try
+                return! someAsyncFunction ()
+            finally
+                lock.Release() |> ignore
+        }

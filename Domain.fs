@@ -2,6 +2,7 @@ module WebSocket_Matchmaking_Server.Domain
 
 open System.Collections.Concurrent
 open System.Collections.Generic
+open System.Threading
 open Suave.WebSocket
 
 
@@ -23,7 +24,7 @@ and Player =
     {| webSocket: WebSocket
        connectionId: ConnectionId |} // TODO: take language and translate errors to this language
 
-and Lock = Object
+and Lock = Semaphore
 
 and PeerId = int
 
@@ -53,6 +54,3 @@ module ConnectionInfo =
     let create () =
         {| connectionState = ConnectionState.JustJoined
            eventsMissed = ConcurrentQueue() |}
-
-module Lock =
-    let create () : Lock = Object

@@ -1,0 +1,22 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "WebSocket-Matchmaking-Server", "WebSocket-Matchmaking-Server.fsproj", "{150949D0-1AD2-4991-B7AC-EF5E77B5FED9}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Tests", "Tests\Tests.fsproj", "{12518A2D-8529-43FF-86A2-9BCB39A26CD2}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{150949D0-1AD2-4991-B7AC-EF5E77B5FED9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{150949D0-1AD2-4991-B7AC-EF5E77B5FED9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{150949D0-1AD2-4991-B7AC-EF5E77B5FED9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{150949D0-1AD2-4991-B7AC-EF5E77B5FED9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{12518A2D-8529-43FF-86A2-9BCB39A26CD2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{12518A2D-8529-43FF-86A2-9BCB39A26CD2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{12518A2D-8529-43FF-86A2-9BCB39A26CD2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{12518A2D-8529-43FF-86A2-9BCB39A26CD2}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

@@ -95,7 +95,7 @@ let handleListLobbiesRequest (connectionInfo: ConnectionInfo) (webSocket: WebSoc
             | ChosenDomain stateInfo -> stateInfo.domain.lobbies, stateInfo.domain.domainLock
             | InsideLobby stateInfo -> stateInfo.domain.lobbies, stateInfo.domain.domainLock
 
-        let lobbyDtos = lock domainLock (fun _ -> lobbies |> Seq.map toLobbyDto)
+        let lobbyDtos = domainLock |> Lock.lockSync (fun _ -> lobbies |> Seq.map toLobbyDto)
 
         do! websocketSend webSocket (LobbyListResponse {| lobbies = lobbyDtos |})
 

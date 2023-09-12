@@ -1,6 +1,7 @@
 module WebSocket_Matchmaking_Server.Utils
 
 open System.Threading
+open NeoSmart.AsyncLock
 open WebSocket_Matchmaking_Server.Domain
 
 
@@ -20,14 +21,16 @@ module SocketMonad =
             | Choice2Of2 fail -> Choice1Of2 failValue)
 
 module Lock =
-    let create () : Lock = new Semaphore(1, 1)
+    let create () : Lock = AsyncLock()
 
-    let rec lockAsync (someAsyncFunction: unit -> Async<'a>) (lock: Lock) =
+    let lockAsync (someAsyncFunction: unit -> Async<'a>) (lock: Lock) =
         async {
-            lock.WaitOne() |> ignore
-
-            try
-                return! someAsyncFunction ()
-            finally
-                lock.Release() |> ignore
+            use! locking = lock.LockAsync()
+            
+            return! someAsyncFunction ()
         }
+
+    let lockSync (someSyncFunction: unit -> 'a) (lock: Lock) =
+        use locking = lock.Lock()
+
+        someSyncFunction ()

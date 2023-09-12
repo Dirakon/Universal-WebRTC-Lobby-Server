@@ -3,6 +3,7 @@ module WebSocket_Matchmaking_Server.Domain
 open System.Collections.Concurrent
 open System.Collections.Generic
 open System.Threading
+open NeoSmart.AsyncLock
 open Suave.WebSocket
 
 
@@ -24,7 +25,7 @@ and Player =
     {| webSocket: WebSocket
        connectionId: ConnectionId |} // TODO: take language and translate errors to this language
 
-and Lock = Semaphore
+and Lock = AsyncLock
 
 and PeerId = int
 

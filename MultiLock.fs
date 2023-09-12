@@ -11,7 +11,7 @@ type MultiLock() =
     let mutable accumulatedLocks: Lock list = []
 
     member this.addLock(newLock: Lock) =
-        lock criticalLock (fun _ ->
+        criticalLock |> Lock.lockSync (fun _ ->
             Monitor.Enter newLock
             accumulatedLocks <- accumulatedLocks |> List.append (List.singleton newLock))
 

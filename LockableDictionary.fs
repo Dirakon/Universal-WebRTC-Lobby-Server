@@ -31,7 +31,7 @@ module LockableDictionary =
         =
         async {
             let keyLock =
-                lock dictionary.criticalLock (fun _ ->
+                dictionary.criticalLock |> Lock.lockSync (fun _ ->
                     match dictionary.underlyingDictionary |> ConcurrentDictionary.tryFind key with
                     | None ->
                         let newLock = Lock.create ()

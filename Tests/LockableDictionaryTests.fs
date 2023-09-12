@@ -3,7 +3,7 @@ module Tests.LockableDictionaryTests
 
 open System.Collections.Concurrent
 open System.Diagnostics
-open System.Threading.Tasks
+open System.Linq
 
 open NUnit.Framework
 
@@ -57,7 +57,11 @@ let ``LockableDictionary locks on key`` (someKey: int) =
         let values = [ 1; 2; 3; 4 ]
 
         // Act
-        do! values |> Seq.map (fun value -> makeAsyncTask oneTaskTimeMs value) |> Async.Parallel |> Async.Ignore
+        do!
+            values
+            |> Seq.map (fun value -> makeAsyncTask oneTaskTimeMs value)
+            |> Async.Parallel
+            |> Async.Ignore
 
         // Assert
         dictionary
@@ -74,14 +78,16 @@ let ``LockableDictionary is on on-key basis`` () =
     async {
         // Arrange
         let dictionary = dictionary.Value
-        let keys = [ 1; 2; 3; 4; 5; 6; 7; 8; 9; 10; 11; 12; 13; 14; 15; 16; 17; 18; 19; 20 ]
+        let keys = Enumerable.Range(0, 40) |> Seq.toList
         let oneTestTime: int64 = 4000
 
         let sw = Stopwatch()
         sw.Start()
 
         // Act
-        do! keys |> Seq.map (fun key -> ``LockableDictionary locks on key`` key) |> Async.Parallel |> Async.Ignore
+        do!
+            Async.Parallel(keys |> Seq.map (fun key -> ``LockableDictionary locks on key`` key))
+            |> Async.Ignore
 
         // Assert
         sw.Stop()

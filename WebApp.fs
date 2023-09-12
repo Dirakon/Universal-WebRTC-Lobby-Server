@@ -38,7 +38,8 @@ let mutable lastConnectionId: ConnectionId = 0
 let connectionIdLock = Lock.create ()
 
 let getConnectionId () =
-    connectionIdLock |> Lock.lockSync (fun _ ->
+    connectionIdLock
+    |> Lock.lockSync (fun _ ->
         lastConnectionId <- lastConnectionId + 1
         lastConnectionId - 1)
 
@@ -57,7 +58,8 @@ let handleCreateLobbyRequest
                 if lobbyCreationRequestInvalid request then
                     LobbyCreationFailure {| comment = Some("Invalid lobby info") |}
                 else
-                    stateInfo.domain.domainLock |> Lock.lockSync (fun _ ->
+                    stateInfo.domain.domainLock
+                    |> Lock.lockSync (fun _ ->
                         let biggestId =
                             stateInfo.domain.lobbies
                             |> Seq.map (fun lobby -> lobby.id)
@@ -137,7 +139,8 @@ let handleRelayRequest
         let destinationWebSocket =
             match connectionInfo.connectionState with
             | InsideLobby stateInfo ->
-                stateInfo.lobby.lobbyLock |> Lock.lockSync (fun _ ->
+                stateInfo.lobby.lobbyLock
+                |> Lock.lockSync (fun _ ->
                     stateInfo.lobby.players
                     |> Seq.tryFind (fun (KeyValue(id, _)) -> id = destinationPeerId)
                     |> Option.map (fun (KeyValue(_, player)) -> player.webSocket))
@@ -238,14 +241,14 @@ let handleJoinLobbyRequest
             return connectionInfo
         | ChosenDomain stateInfo ->
             let chosenLobby =
-                stateInfo.domain.domainLock |> Lock.lockSync (fun _ ->
-                    stateInfo.domain.lobbies |> Seq.tryFind (fun lobby -> lobby.id = lobbyId))
+                stateInfo.domain.domainLock
+                |> Lock.lockSync (fun _ -> stateInfo.domain.lobbies |> Seq.tryFind (fun lobby -> lobby.id = lobbyId))
 
             match chosenLobby with
             | None ->
                 do! websocketSend webSocket (LobbyJoinFailure {| comment = Some("Cannot find requested lobby") |})
                 return connectionInfo
-            | Some(lobby) ->
+            | Some(lobby: Lobby) ->
                 return!
                     lobby.lobbyLock
                     |> Lock.lockAsync (fun _ ->

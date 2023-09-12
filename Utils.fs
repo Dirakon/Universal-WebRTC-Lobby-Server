@@ -1,7 +1,6 @@
 module WebSocket_Matchmaking_Server.Utils
 
-open System.Threading
-open NeoSmart.AsyncLock
+open FSharp.Core
 open WebSocket_Matchmaking_Server.Domain
 
 
@@ -21,16 +20,13 @@ module SocketMonad =
             | Choice2Of2 fail -> Choice1Of2 failValue)
 
 module Lock =
-    let create () : Lock = AsyncLock()
+    let create () : Lock = new RWLock<unit>()
 
     let lockAsync (someAsyncFunction: unit -> Async<'a>) (lock: Lock) =
         async {
-            use! locking = lock.LockAsync()
-            
+            use! locking = lock.Write().AsTask() |> Async.AwaitTask
+
             return! someAsyncFunction ()
         }
 
-    let lockSync (someSyncFunction: unit -> 'a) (lock: Lock) =
-        use locking = lock.Lock()
-
-        someSyncFunction ()
+    let lockSync (someSyncFunction: unit -> 'a) (lock: Lock) = failwith "TODO"

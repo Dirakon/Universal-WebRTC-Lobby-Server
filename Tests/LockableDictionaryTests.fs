@@ -17,11 +17,12 @@ open System
 
 let defaultValue = 0
 let mutable dictionary: Option<LockableDictionary<int, int>> = None
+let mutable globalSw: Option<Stopwatch> = None
 
 [<SetUp>]
 let Setup () =
     dictionary <- Some(LockableDictionary.create (fun _ -> defaultValue))
-
+    globalSw <- Some(Stopwatch.StartNew())
 
 
 [<Test>]
@@ -44,21 +45,19 @@ let ``LockableDictionary locks on key`` (someKey: int) =
                     lockIsSupposedToBeSet <- true
 
                     valuesSeen.Add(previousValue)
-                    do! Task.Delay(waitingTimeMs) |> Async.AwaitTask
+                    do! Async.Sleep(waitingTimeMs)
 
                     Assert.AreEqual(lockIsSupposedToBeSet, true)
                     lockIsSupposedToBeSet <- false
                     return ((), ownValue)
                 })
 
-        let sw = Stopwatch()
-        sw.Start()
 
         let oneTaskTimeMs = 1000
         let values = [ 1; 2; 3; 4 ]
 
         // Act
-        let! results = Async.Parallel(values |> Seq.map (fun value -> makeAsyncTask oneTaskTimeMs value))
+        do! values |> Seq.map (fun value -> makeAsyncTask oneTaskTimeMs value) |> Async.Parallel |> Async.Ignore
 
         // Assert
         dictionary
@@ -82,7 +81,7 @@ let ``LockableDictionary is on on-key basis`` () =
         sw.Start()
 
         // Act
-        let! results = Async.Parallel(keys |> Seq.map (fun key -> ``LockableDictionary locks on key`` key))
+        do! keys |> Seq.map (fun key -> ``LockableDictionary locks on key`` key) |> Async.Parallel |> Async.Ignore
 
         // Assert
         sw.Stop()

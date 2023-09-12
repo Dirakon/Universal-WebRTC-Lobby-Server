@@ -40,7 +40,7 @@ module LockableDictionary =
                             (dictionary.underlyingDictionary.TryAdd(key, (newLock, dictionary.defaultValueFactory ())) = true)
 
                         newLock
-                    | Some(lock, value) -> lock)
+                    | Some(keyLock, value) -> keyLock)
 
             return!
                 keyLock

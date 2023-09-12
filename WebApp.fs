@@ -38,7 +38,7 @@ let mutable lastConnectionId: ConnectionId = 0
 let connectionIdLock = Lock.create ()
 
 let getConnectionId () =
-    lock connectionIdLock (fun _ ->
+    connectionIdLock |> Lock.lockSync (fun _ ->
         lastConnectionId <- lastConnectionId + 1
         lastConnectionId - 1)
 
@@ -57,7 +57,7 @@ let handleCreateLobbyRequest
                 if lobbyCreationRequestInvalid request then
                     LobbyCreationFailure {| comment = Some("Invalid lobby info") |}
                 else
-                    lock stateInfo.domain.domainLock (fun _ ->
+                    stateInfo.domain.domainLock |> Lock.lockSync (fun _ ->
                         let biggestId =
                             stateInfo.domain.lobbies
                             |> Seq.map (fun lobby -> lobby.id)
@@ -137,7 +137,7 @@ let handleRelayRequest
         let destinationWebSocket =
             match connectionInfo.connectionState with
             | InsideLobby stateInfo ->
-                lock stateInfo.lobby.lobbyLock (fun _ ->
+                stateInfo.lobby.lobbyLock |> Lock.lockSync (fun _ ->
                     stateInfo.lobby.players
                     |> Seq.tryFind (fun (KeyValue(id, _)) -> id = destinationPeerId)
                     |> Option.map (fun (KeyValue(_, player)) -> player.webSocket))
@@ -238,7 +238,7 @@ let handleJoinLobbyRequest
             return connectionInfo
         | ChosenDomain stateInfo ->
             let chosenLobby =
-                lock stateInfo.domain.domainLock (fun _ ->
+                stateInfo.domain.domainLock |> Lock.lockSync (fun _ ->
                     stateInfo.domain.lobbies |> Seq.tryFind (fun lobby -> lobby.id = lobbyId))
 
             match chosenLobby with

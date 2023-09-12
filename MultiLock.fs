@@ -16,7 +16,7 @@ type MultiLock() =
             accumulatedLocks <- accumulatedLocks |> List.append (List.singleton newLock))
 
     member this.tryRemoveLock(existingLock: Lock) =
-        lock criticalLock (fun _ ->
+        criticalLock |> Lock.lockSync (fun _ ->
             if accumulatedLocks |> Seq.contains existingLock then
                 Monitor.Exit existingLock
                 accumulatedLocks <- accumulatedLocks |> List.except [ existingLock ]
@@ -25,7 +25,7 @@ type MultiLock() =
                 false)
 
     member this.unlockAll =
-        lock criticalLock (fun _ ->
+        criticalLock |> Lock.lockSync (fun _ ->
             accumulatedLocks |> Seq.map Monitor.Exit |> ignore
             accumulatedLocks <- [])
 

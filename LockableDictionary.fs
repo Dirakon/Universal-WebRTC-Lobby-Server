@@ -30,17 +30,24 @@ module LockableDictionary =
         (dictionary: LockableDictionary<'key, 'value>)
         =
         async {
-            let keyLock =
-                dictionary.criticalLock |> Lock.lockSync (fun _ ->
-                    match dictionary.underlyingDictionary |> ConcurrentDictionary.tryFind key with
-                    | None ->
-                        let newLock = Lock.create ()
+            let! keyLock =
+                dictionary.criticalLock
+                |> Lock.lockAsync (fun _ ->
+                    async {
+                        return
+                            match dictionary.underlyingDictionary |> ConcurrentDictionary.tryFind key with
+                            | None ->
+                                let newLock = Lock.create ()
 
-                        assert
-                            (dictionary.underlyingDictionary.TryAdd(key, (newLock, dictionary.defaultValueFactory ())) = true)
+                                assert
+                                    (dictionary.underlyingDictionary.TryAdd(
+                                        key,
+                                        (newLock, dictionary.defaultValueFactory ())
+                                    ) = true)
 
-                        newLock
-                    | Some(keyLock, value) -> keyLock)
+                                newLock
+                            | Some(keyLock, value) -> keyLock
+                    })
 
             return!
                 keyLock
@@ -55,8 +62,10 @@ module LockableDictionary =
 
                         let! returnValue, newValueToSet = someFunction oldValue
 
-                        lock dictionary.criticalLock (fun _ ->
-                            dictionary.underlyingDictionary.[key] <- (keyLock, newValueToSet))
+                        do!
+                            dictionary.criticalLock
+                            |> Lock.lockAsync (fun _ ->
+                                async { dictionary.underlyingDictionary[key] <- (keyLock, newValueToSet) })
 
                         return returnValue
                     })

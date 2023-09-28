@@ -19,14 +19,14 @@ module SocketMonad =
             | Choice1Of2 success -> Choice1Of2 success
             | Choice2Of2 fail -> Choice1Of2 failValue)
 
-module Lock =
-    let create () : Lock = new RWLock<unit>()
-
-    let lockAsync (someAsyncFunction: unit -> Async<'a>) (lock: Lock) =
-        async {
-            use! locking = lock.Write().AsTask() |> Async.AwaitTask
-
-            return! someAsyncFunction ()
-        }
-
-    let lockSync (someSyncFunction: unit -> 'a) (lock: Lock) = failwith "TODO"
+// module Lock =
+//     let create () : Lock = new RWLock<unit>()
+//
+//     let lockAsync (someAsyncFunction: unit -> Async<'a>) (lock: Lock) =
+//         async {
+//             use! locking = lock.Write().AsTask() |> Async.AwaitTask
+//
+//             return! someAsyncFunction ()
+//         }
+//
+//     let lockSync (someSyncFunction: unit -> 'a) (lock: Lock) = failwith "TODO"

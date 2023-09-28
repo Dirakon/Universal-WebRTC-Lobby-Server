@@ -10,6 +10,7 @@ open Suave.Sockets.Control
 open Suave.WebSocket
 
 open Newtonsoft.Json
+open WebSocket_Matchmaking_Server.Domain
 open WebSocket_Matchmaking_Server.MessagingDomain
 open YoLo
 

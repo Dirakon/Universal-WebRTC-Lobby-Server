@@ -438,7 +438,6 @@ and [<Sealed; NoComparison; NoEquality>] RWLock<'a>(initialValue: 'a) =
 and [<Struct; NoComparison; NoEquality>] WriteLockAcquisition<'a> internal (lock: RWLock<'a>, lockId: LockId) =
     member this.LockId: LockId = lockId
 
-    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
     member this.Value
         with get () = lock.GetValue()
         and set value = lock.SetValue value
@@ -452,7 +451,6 @@ and [<Struct; IsReadOnly; NoComparison; NoEquality>] ReadLockAcquisition<'a> int
     =
     member this.LockId: LockId = lockId
     //TODO: maybe Value should return inref, to prevent it from being closure-captured between tasks (outside of lock jurisdiction)?
-    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
     member this.Value = lock.GetValue()
 
     /// Upgrades current read lock into write lock, returning new (writable) lock handle.

@@ -6,7 +6,7 @@ open Suave.Sockets
 
 type Domain =
     {| domainName: string
-       lobbies: RWLock<LobbyInfo ResizeArray> |} // TODO: maybe list is sufficient because of RWLock's power?
+       lobbies: RWLock<LobbyInfo list> |} // TODO: maybe list is sufficient because of RWLock's power?
 and LobbyInfo =
     {| host: Player
        id: LobbyId 
@@ -29,7 +29,7 @@ and LobbyId = int
 
 
 and ConnectionState =
-    | JustJoined
+    // | JustJoined
     | ChosenDomain of {| domain: Domain |}
     | InsideLobby of
         {| domain: Domain
@@ -77,28 +77,27 @@ and WebsocketClientMessage =
     | LobbyJoinRequest of
         {| lobbyId: LobbyId
            password: Option<string> |}
-    | DomainJoinRequest of {| domainName: string |}
-    | LobbyListRequest
-    | LobbySealRequest
+    // | DomainJoinRequest of {| domainName: string |}
+    // | LobbyListRequest
+    // | LobbySealRequest
     | LobbyLeaveRequest
-    | MessageRelayRequest of
-        {| message: string
-           destinationPlayerId: PlayerId |}
+    // | MessageRelayRequest of
+    //     {| message: string
+    //        destinationPlayerId: PlayerId |}
 
 and WebsocketServerMessage =
     | LobbyCreationSuccess of {| assignedLobbyId: LobbyId |}
     | LobbyCreationFailure of {| comment: Option<string> |}
     | LobbyJoinSuccess of {| lobbyId: LobbyId |}
     | LobbyJoinFailure of {| comment: Option<string> |}
-    | DomainJoinSuccess
-    | DomainJoinFailure of {| comment: Option<string> |}
-    | MessageRelaySuccess
-    | MessageRelayFailure of {| comment: Option<string> |}
+    // | DomainJoinSuccess
+    // | DomainJoinFailure of {| comment: Option<string> |}
+    // | MessageRelaySuccess
+    // | MessageRelayFailure of {| comment: Option<string> |}
+    | PlayersChangeNotification of {| updatedPlayers: Map<PlayerId, Player> |}
     | MessageRelayedNotification of {| message: string |}
-    | LobbyListResponse of {| lobbies: SingleLobbyInfo seq |}
-    | PlayerLeaveNotification of {| leaverId: PlayerId; lobbyId: LobbyId |}
-    | PlayerJoinNotification of {| joineeId: PlayerId; lobbyId: LobbyId |}
-    | LobbyLeaveNotification of {| comment: Option<string> |}
+    // | LobbyListResponse of {| lobbies: SingleLobbyInfo seq |}
+    // | LobbyLeaveNotification of {| comment: Option<string> |}
 
 and WebSocketMessageHandling = WebsocketClientMessage -> Async<Choice<unit, Error>>
 

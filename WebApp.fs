@@ -27,10 +27,11 @@ open YoLo
 
 //
 //
-let domains: Domain list =
-    [ {| lobbies = new RWLock<ResizeArray<LobbyInfo>>(ResizeArray([||]))
-         domainName = "chess-with-connect-4" // TODO: load from file (.env or similar)
-      |} ]
+// let domains: Domain list =
+//     [ ] TODO: do this instead of one domain // TODO: load from file (.env or similar)
+let initialDomain: Domain =
+    {| lobbies = new RWLock<LobbyInfo list>([])
+       domainName = "chess-with-connect-4" |}
 //
 // let connectionsInformation =
 //     LockableDictionary.create<ConnectionId, ConnectionInfo> ConnectionInfo.create
@@ -374,19 +375,87 @@ let wsWithErrorHandling (webSocket: WebSocket) (context: HttpContext) =
                     async {
                         let! msg = processor.Receive()
 
-                        let newState =
-                            match msg with
-                            | InboxNotification inboxNotification ->
-                                match inboxNotification with
-                                | LobbyReplicaUpdate foo -> failwith "todo"
-                                | WebsocketClientMessage websocketClientMessage -> failwith "todo"
-                                | InboxNotification.LobbyJoinSuccess foo -> failwith "todo"
-                                | InboxNotification.LobbyJoinFailure foo -> failwith "todo"
-                            | InboxRequest requestDescription ->
-                                match requestDescription.request with
-                                | LobbyConnectionRequest lobbyConnectionRequest ->
-                                    match currentState with
-                                    | InsideLobby insideLobbyState when
+                        let! newState =
+                            match currentState with
+                            | ChosenDomain chosenDomainState ->
+                                match msg with
+                                | InboxNotification inboxNotification ->
+                                    match inboxNotification with
+                                    | WebsocketClientMessage websocketClientMessage ->
+                                        match websocketClientMessage with
+                                        | LobbyCreationRequest foo -> failwith "todo"
+                                        | LobbyJoinRequest foo -> failwith "todo"
+                                        | LobbyLeaveRequest ->
+                                            failwith "invalid message to get while NOT in lobby: LOG IT SOMEHOW?"
+                                    | InboxNotification.LobbyJoinSuccess messagePayload ->
+                                        let initialLobbyReplica = messagePayload.lobbyReplica
+
+                                        outbox.Post(
+                                            WebsocketServerMessage(
+                                                WebsocketServerMessage.LobbyJoinSuccess
+                                                    {| lobbyId = initialLobbyReplica.info.id |}
+                                            )
+                                        )
+
+                                        outbox.Post(
+                                            WebsocketServerMessage(
+                                                WebsocketServerMessage.PlayersChangeNotification
+                                                    {| updatedPlayers = initialLobbyReplica.players |}
+                                            )
+                                        )
+
+                                        InsideLobby
+                                            {| domain = chosenDomainState.domain
+                                               lobby = initialLobbyReplica |}
+                                        |> Async.result
+                                    | InboxNotification.LobbyJoinFailure commentPayload ->
+                                        outbox.Post(
+                                            WebsocketServerMessage(
+                                                WebsocketServerMessage.LobbyJoinFailure commentPayload
+                                            )
+                                        )
+
+                                        currentState |> Async.result
+                                    | LobbyReplicaUpdate foo ->
+                                        failwith "invalid message to get while NOT in lobby: LOG IT SOMEHOW?"
+                                | InboxRequest requestDescription ->
+                                    match requestDescription.request with
+                                    | LobbyConnectionRequest _ ->
+                                        requestDescription.callbackProcessor.Post(
+                                            InboxNotification(
+                                                InboxNotification.LobbyJoinFailure
+                                                    {| comment =
+                                                        Some("Lobby host is no longer host in the requested lobby") |}
+                                            )
+                                        )
+
+                                        currentState |> Async.result
+                            | InsideLobby insideLobbyState ->
+                                match msg with
+                                | InboxNotification inboxNotification ->
+                                    match inboxNotification with
+                                    | LobbyReplicaUpdate newLobbyReplica when
+                                        newLobbyReplica.info.id = insideLobbyState.lobby.info.id
+                                        ->
+                                        outbox.Post(
+                                            WebsocketServerMessage(
+                                                WebsocketServerMessage.PlayersChangeNotification
+                                                    {| updatedPlayers = newLobbyReplica.players |}
+                                            )
+                                        )
+
+                                        InsideLobby
+                                            {| insideLobbyState with
+                                                lobby = newLobbyReplica |}
+                                        |> Async.result
+                                    | LobbyReplicaUpdate _ -> failwith "invalid lobbyId! LOG IT SOMEHOW?"
+                                    | WebsocketClientMessage websocketClientMessage -> failwith "todo"
+                                    | InboxNotification.LobbyJoinSuccess _
+                                    | InboxNotification.LobbyJoinFailure _ ->
+                                        failwith "invalid message to get while in lobby: LOG IT SOMEHOW?"
+                                | InboxRequest requestDescription ->
+                                    match requestDescription.request with
+                                    | LobbyConnectionRequest lobbyConnectionRequest when
                                         (insideLobbyState.lobby.info.id = lobbyConnectionRequest.lobbyId)
                                         && (thisPlayer.playerId = insideLobbyState.lobby.info.host.playerId)
                                         ->
@@ -401,7 +470,7 @@ let wsWithErrorHandling (webSocket: WebSocket) (context: HttpContext) =
                                                 )
                                             )
 
-                                            currentState
+                                            currentState |> Async.result
                                         elif
                                             insideLobbyState.lobby.players.Values
                                             |> Seq.exists (fun p ->
@@ -414,7 +483,7 @@ let wsWithErrorHandling (webSocket: WebSocket) (context: HttpContext) =
                                                 )
                                             )
 
-                                            currentState
+                                            currentState |> Async.result
                                         else
                                             let oldLobbyReplica = insideLobbyState.lobby
 
@@ -426,15 +495,25 @@ let wsWithErrorHandling (webSocket: WebSocket) (context: HttpContext) =
                                                             lobbyConnectionRequest.player
                                                         ) |}
 
+                                            for KeyValue(playerId, player) in oldLobbyReplica.players do
+                                                player.inbox.Post(
+                                                    InboxNotification(
+                                                        InboxNotification.LobbyReplicaUpdate newLobbyReplica
+                                                    )
+                                                )
+
+                                            requestDescription.callbackProcessor.Post(
+                                                InboxNotification(
+                                                    InboxNotification.LobbyJoinSuccess
+                                                        {| lobbyReplica = newLobbyReplica |}
+                                                )
+                                            )
+
                                             InsideLobby
                                                 {| insideLobbyState with
                                                     lobby = newLobbyReplica |}
-
-
-
-                                    | JustJoined
-                                    | ChosenDomain _
-                                    | InsideLobby _ ->
+                                            |> Async.result
+                                    | LobbyConnectionRequest _ ->
                                         requestDescription.callbackProcessor.Post(
                                             InboxNotification(
                                                 InboxNotification.LobbyJoinFailure
@@ -443,7 +522,23 @@ let wsWithErrorHandling (webSocket: WebSocket) (context: HttpContext) =
                                             )
                                         )
 
-                                        currentState
+                                        currentState |> Async.result
+
+
+
+                        //  | JustJoined
+                        // | ChosenDomain _
+                        // | InsideLobby _ ->
+                        //     requestDescription.callbackProcessor.Post(
+                        //         InboxNotification(
+                        //             InboxNotification.LobbyJoinFailure
+                        //                 {| comment =
+                        //                     Some("Lobby host is no longer host in the requested lobby") |}
+                        //         )
+                        //     )
+                        //
+                        //  currentState
+
 
 
                         return! messageLoop newState

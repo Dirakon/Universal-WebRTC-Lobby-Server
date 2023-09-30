@@ -2,8 +2,10 @@ module WebSocket_Matchmaking_Server.WebApp
 
 open System.Collections.Generic
 open FSharp.Core
+open FsToolkit.ErrorHandling
 open Microsoft.FSharp.Core
 open Suave
+open Suave.Logging
 open Suave.Operators
 open Suave.Filters
 open Suave.RequestErrors
@@ -26,9 +28,9 @@ open YoLo
 //
 //
 let domains: Domain list =
-        [ {| lobbies = new RWLock<ResizeArray<LobbyInfo>>(ResizeArray([||]))
-             domainName = "chess-with-connect-4" // TODO: load from file (.env or similar)
-              |} ]
+    [ {| lobbies = new RWLock<ResizeArray<LobbyInfo>>(ResizeArray([||]))
+         domainName = "chess-with-connect-4" // TODO: load from file (.env or similar)
+      |} ]
 //
 // let connectionsInformation =
 //     LockableDictionary.create<ConnectionId, ConnectionInfo> ConnectionInfo.create
@@ -317,8 +319,21 @@ let domains: Domain list =
 //         handleRelayRequest connectionInfo request.destinationPeerId request.message webSocket
 //
 
+let maxPlayerId: RWLock<PlayerId> = new RWLock<PlayerId>(1)
 
-/// An example of explictly fetching websocket errors and handling them in your codebase.
+let getNewPlayerId () =
+    async {
+        use! locking = maxPlayerId.Write().AsTask() |> Async.AwaitTask
+        let mutable writer = locking
+        let newId = writer.Value
+
+        writer.Value <- (newId + 1)
+
+        return newId
+    }
+
+
+/// An example of explicitly fetching websocket errors and handling them in your codebase.
 let wsWithErrorHandling (webSocket: WebSocket) (context: HttpContext) =
 
     use _ =
@@ -326,36 +341,130 @@ let wsWithErrorHandling (webSocket: WebSocket) (context: HttpContext) =
             member _.Dispose() =
                 printfn "Resource needed by websocket connection disposed" }
 
-    let outbox = new MailboxProcessor<OutboxMessage>(
-        fun processor ->
-            let rec messageLoop() = async{
-                let! msg = processor.Receive()
+    let outbox =
+        new MailboxProcessor<OutboxMessage>(fun processor ->
+            let rec messageLoop () =
+                async {
+                    let! msg = processor.Receive()
 
-                do! match msg with
-                    | WebsocketServerMessage websocketServerMessage -> (websocketSend webSocket websocketServerMessage)
-                                                                       |> Async.Ignore
+                    let! sendingSuccess =
+                        match msg with
+                        | WebsocketServerMessage websocketServerMessage ->
+                            (websocketSend webSocket websocketServerMessage)
 
-                return! messageLoop()
+                    match sendingSuccess with
+                    | Choice1Of2 unit -> return! messageLoop ()
+                    | Choice2Of2 error -> () // TODO: log websocket communication error, try repeat?
                 }
 
-            messageLoop()
-        )
+            messageLoop ())
 
-    let rec messageHandling (message: WebsocketClientMessage) =
-        connectionsInformation
-        |> LockableDictionary.withLockOnKeyAsync connectionId (fun connectionInfo ->
-            messageHandlingWorkflow message connectionInfo webSocket connectionId
-            |> Async.map (fun res ->
-                match res with
-                | Choice1Of2 newConnectionInfo -> (Choice1Of2(), newConnectionInfo)
-                // NOTE: putting default connectionInfo back since I didn't figure out how to safely remove entries from this lockable dictionary yet
-                // TODO: figure this out ^
-                | Choice2Of2 error -> ((Choice2Of2 error), ConnectionInfo.create ())))
-
-
-    let websocketWorkflow = websocketListen webSocket context messageHandling
+    outbox.Start()
 
     async {
+        let! thisPlayerId = getNewPlayerId ()
+
+        let rec inbox =
+            new MailboxProcessor<InboxMessage>(fun processor ->
+                let thisPlayer: Player =
+                    {| playerId = thisPlayerId
+                       inbox = inbox |}
+
+                let rec messageLoop (currentState: ConnectionState) =
+                    async {
+                        let! msg = processor.Receive()
+
+                        let newState =
+                            match msg with
+                            | InboxNotification inboxNotification ->
+                                match inboxNotification with
+                                | LobbyReplicaUpdate foo -> failwith "todo"
+                                | WebsocketClientMessage websocketClientMessage -> failwith "todo"
+                                | InboxNotification.LobbyJoinSuccess foo -> failwith "todo"
+                                | InboxNotification.LobbyJoinFailure foo -> failwith "todo"
+                            | InboxRequest requestDescription ->
+                                match requestDescription.request with
+                                | LobbyConnectionRequest lobbyConnectionRequest ->
+                                    match currentState with
+                                    | InsideLobby insideLobbyState when
+                                        (insideLobbyState.lobby.info.id = lobbyConnectionRequest.lobbyId)
+                                        && (thisPlayer.playerId = insideLobbyState.lobby.info.host.playerId)
+                                        ->
+                                        if
+                                            insideLobbyState.lobby.players.Count
+                                            >= insideLobbyState.lobby.info.maxPlayers
+                                        then
+                                            requestDescription.callbackProcessor.Post(
+                                                InboxNotification(
+                                                    InboxNotification.LobbyJoinFailure
+                                                        {| comment = Some("Player count is full") |}
+                                                )
+                                            )
+
+                                            currentState
+                                        elif
+                                            insideLobbyState.lobby.players.Values
+                                            |> Seq.exists (fun p ->
+                                                p.playerId = lobbyConnectionRequest.player.playerId)
+                                        then
+                                            requestDescription.callbackProcessor.Post(
+                                                InboxNotification(
+                                                    InboxNotification.LobbyJoinFailure
+                                                        {| comment = Some("Player already in the lobby") |}
+                                                )
+                                            )
+
+                                            currentState
+                                        else
+                                            let oldLobbyReplica = insideLobbyState.lobby
+
+                                            let newLobbyReplica: LobbyReplica =
+                                                {| oldLobbyReplica with
+                                                    players =
+                                                        oldLobbyReplica.players.Add(
+                                                            lobbyConnectionRequest.player.playerId,
+                                                            lobbyConnectionRequest.player
+                                                        ) |}
+
+                                            InsideLobby
+                                                {| insideLobbyState with
+                                                    lobby = newLobbyReplica |}
+
+
+
+                                    | JustJoined
+                                    | ChosenDomain _
+                                    | InsideLobby _ ->
+                                        requestDescription.callbackProcessor.Post(
+                                            InboxNotification(
+                                                InboxNotification.LobbyJoinFailure
+                                                    {| comment =
+                                                        Some("Lobby host is no longer host in the requested lobby") |}
+                                            )
+                                        )
+
+                                        currentState
+
+
+                        return! messageLoop newState
+                    }
+
+                messageLoop ConnectionState.JustJoined)
+
+        let rec messageHandling (message: WebsocketClientMessage) =
+            connectionsInformation
+            |> LockableDictionary.withLockOnKeyAsync connectionId (fun connectionInfo ->
+                messageHandlingWorkflow message connectionInfo webSocket connectionId
+                |> Async.map (fun res ->
+                    match res with
+                    | Choice1Of2 newConnectionInfo -> (Choice1Of2(), newConnectionInfo)
+                    // NOTE: putting default connectionInfo back since I didn't figure out how to safely remove entries from this lockable dictionary yet
+                    // TODO: figure this out ^
+                    | Choice2Of2 error -> ((Choice2Of2 error), ConnectionInfo.create ())))
+
+
+        let websocketWorkflow = websocketListen webSocket context messageHandling
+
         let! successOrError = websocketWorkflow
 
         match successOrError with

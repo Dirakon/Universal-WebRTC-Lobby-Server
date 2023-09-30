@@ -2,7 +2,6 @@ module WebSocket_Matchmaking_Server.Domain
 
 open FSharp.Core
 open Suave.Sockets
-open Suave.WebSocket
 
 
 type Domain =
@@ -17,13 +16,13 @@ and LobbyInfo =
        |}
 and LobbyReplica =
     {| info : LobbyInfo
-       players: Map<PeerId, Player>
+       players: Map<PlayerId, Player>
        |}
 and Player =
-    {| webSocket: WebSocket
-       inbox: MailboxProcessor<InboxMessage> |} // TODO: take language and translate errors to this language
+    {| inbox: MailboxProcessor<InboxMessage>
+       playerId: PlayerId |} // TODO: take language and translate errors to this language
 
-and PeerId = int
+and PlayerId = int
 
 and LobbyId = int
 
@@ -34,8 +33,7 @@ and ConnectionState =
     | ChosenDomain of {| domain: Domain |}
     | InsideLobby of
         {| domain: Domain
-           lobby: LobbyReplica
-           peerId: PeerId |}
+           lobby: LobbyReplica |}
 
 and InboxRequest =
     | LobbyConnectionRequest of {| player: Player
@@ -43,6 +41,8 @@ and InboxRequest =
 and InboxNotification =
     | LobbyReplicaUpdate of LobbyReplica
     | WebsocketClientMessage of WebsocketClientMessage
+    | LobbyJoinSuccess of {| lobbyReplica : LobbyReplica |}
+    | LobbyJoinFailure of {| comment: Option<string> |}
 
 and InboxMessage =
     | InboxNotification of InboxNotification
@@ -83,12 +83,12 @@ and WebsocketClientMessage =
     | LobbyLeaveRequest
     | MessageRelayRequest of
         {| message: string
-           destinationPeerId: PeerId |}
+           destinationPlayerId: PlayerId |}
 
 and WebsocketServerMessage =
-    | LobbyCreationSuccess of {| assignedPeerId: PeerId |}
+    | LobbyCreationSuccess of {| assignedLobbyId: LobbyId |}
     | LobbyCreationFailure of {| comment: Option<string> |}
-    | LobbyJoinSuccess of {| assignedPeerId: PeerId |}
+    | LobbyJoinSuccess of {| lobbyId: LobbyId |}
     | LobbyJoinFailure of {| comment: Option<string> |}
     | DomainJoinSuccess
     | DomainJoinFailure of {| comment: Option<string> |}
@@ -96,14 +96,11 @@ and WebsocketServerMessage =
     | MessageRelayFailure of {| comment: Option<string> |}
     | MessageRelayedNotification of {| message: string |}
     | LobbyListResponse of {| lobbies: SingleLobbyInfo seq |}
-    | PlayerLeaveNotification of {| leaverId: PeerId |}
-    | PlayerJoinNotification of {| joineeId: PeerId |}
-    | LobbyLeaveFailure of {| comment: Option<string> |}
+    | PlayerLeaveNotification of {| leaverId: PlayerId; lobbyId: LobbyId |}
+    | PlayerJoinNotification of {| joineeId: PlayerId; lobbyId: LobbyId |}
     | LobbyLeaveNotification of {| comment: Option<string> |}
 
 and WebSocketMessageHandling = WebsocketClientMessage -> Async<Choice<unit, Error>>
-
-let hostPeerId: PeerId = 0
 
 // module ConnectionInfo =
 //     let create () =

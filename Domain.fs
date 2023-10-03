@@ -7,17 +7,18 @@ open Suave.Sockets
 type Domain =
     {| domainName: string
        lobbies: RWLock<LobbyInfo list> |} // TODO: maybe list is sufficient because of RWLock's power?
+
 and LobbyInfo =
     {| host: Player
-       id: LobbyId 
-       name: string 
+       id: LobbyId
+       name: string
        password: Option<string>
-       maxPlayers: int 
-       |}
+       maxPlayers: int |}
+
 and LobbyReplica =
-    {| info : LobbyInfo
-       players: Map<PlayerId, Player>
-       |}
+    {| info: LobbyInfo
+       players: Map<PlayerId, Player> |}
+
 and Player =
     {| inbox: MailboxProcessor<InboxMessage>
        playerId: PlayerId |} // TODO: take language and translate errors to this language
@@ -35,30 +36,26 @@ and ConnectionState =
         {| domain: Domain
            lobby: LobbyReplica |}
 
-and InboxRequest =
-    | LobbyConnectionRequest of {| player: Player
-                                   lobbyId : LobbyId |}
+and InboxRequest = LobbyConnectionRequest of {| player: Player; lobbyId: LobbyId |}
+
 and InboxNotification =
     | LobbyReplicaUpdate of LobbyReplica
     | WebsocketClientMessage of WebsocketClientMessage
-    | LobbyJoinSuccess of {| lobbyReplica : LobbyReplica |}
+    | LobbyJoinSuccess of {| lobbyReplica: LobbyReplica |}
     | LobbyJoinFailure of {| comment: Option<string> |}
 
 and InboxMessage =
     | InboxNotification of InboxNotification
     | InboxRequest of
-        {|
-           request: InboxRequest
-           callbackProcessor : MailboxProcessor<InboxMessage>
-           |}
+        {| request: InboxRequest
+           callbackProcessor: MailboxProcessor<InboxMessage> |}
 
-and OutboxMessage = 
-    | WebsocketServerMessage of WebsocketServerMessage
-    
+and OutboxMessage = WebsocketServerMessage of WebsocketServerMessage
+
 and ConnectionInfo =
     {| websocketOutbox: MailboxProcessor<OutboxMessage>
        connectionState: ConnectionState
-       player : Player |}
+       player: Player |}
 
 and SingleLobbyInfo =
     {| lobbyId: LobbyId
@@ -70,7 +67,7 @@ and SingleLobbyInfo =
 and LobbyCreationRequest =
     {| lobbyName: string
        maxPlayers: int
-       lobbyPassword: Option<string> |}
+       password: Option<string> |}
 
 and WebsocketClientMessage =
     | LobbyCreationRequest of LobbyCreationRequest
@@ -81,9 +78,9 @@ and WebsocketClientMessage =
     // | LobbyListRequest
     // | LobbySealRequest
     | LobbyLeaveRequest
-    // | MessageRelayRequest of
-    //     {| message: string
-    //        destinationPlayerId: PlayerId |}
+// | MessageRelayRequest of
+//     {| message: string
+//        destinationPlayerId: PlayerId |}
 
 and WebsocketServerMessage =
     | LobbyCreationSuccess of {| assignedLobbyId: LobbyId |}
@@ -94,10 +91,10 @@ and WebsocketServerMessage =
     // | DomainJoinFailure of {| comment: Option<string> |}
     // | MessageRelaySuccess
     // | MessageRelayFailure of {| comment: Option<string> |}
-    | PlayersChangeNotification of {| updatedPlayers: Map<PlayerId, Player> |}
+    | PlayersChangeNotification of {| updatedPlayers: PlayerId seq |}
     | MessageRelayedNotification of {| message: string |}
-    // | LobbyListResponse of {| lobbies: SingleLobbyInfo seq |}
-    // | LobbyLeaveNotification of {| comment: Option<string> |}
+// | LobbyListResponse of {| lobbies: SingleLobbyInfo seq |}
+// | LobbyLeaveNotification of {| comment: Option<string> |}
 
 and WebSocketMessageHandling = WebsocketClientMessage -> Async<Choice<unit, Error>>
 

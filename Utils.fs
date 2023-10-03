@@ -1,7 +1,6 @@
 module WebSocket_Matchmaking_Server.Utils
 
 open FSharp.Core
-open WebSocket_Matchmaking_Server.Domain
 
 
 

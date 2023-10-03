@@ -1,11 +1,8 @@
 module WebSocket_Matchmaking_Server.WebApp
 
-open System.Collections.Generic
 open FSharp.Core
 open FsToolkit.ErrorHandling
-open Microsoft.FSharp.Core
 open Suave
-open Suave.Logging
 open Suave.Operators
 open Suave.Filters
 open Suave.RequestErrors
@@ -15,11 +12,7 @@ open System
 open Suave.Sockets.Control
 open Suave.WebSocket
 
-open WebSocket_Matchmaking_Server
 open WebSocket_Matchmaking_Server.Domain
-open WebSocket_Matchmaking_Server.LockableDictionary
-open WebSocket_Matchmaking_Server.MessagingDomain
-open WebSocket_Matchmaking_Server.MultiLock
 open WebSocket_Matchmaking_Server.WebsocketMessagingImplementation
 open WebSocket_Matchmaking_Server.Utils
 open YoLo
@@ -320,6 +313,8 @@ let initialDomain: Domain =
 //         handleRelayRequest connectionInfo request.destinationPeerId request.message webSocket
 //
 
+let standardMailboxTimeoutMs = 15 * 60000
+
 let maxPlayerId: RWLock<PlayerId> = new RWLock<PlayerId>(1)
 
 let getNewPlayerId () =
@@ -333,6 +328,21 @@ let getNewPlayerId () =
         return newId
     }
 
+let maxLobbyId: RWLock<LobbyId> = new RWLock<LobbyId>(1)
+
+let getNewLobbyId () =
+    async {
+        use! locking = maxLobbyId.Write().AsTask() |> Async.AwaitTask
+        let mutable writer = locking
+        let newId = writer.Value
+
+        writer.Value <- (newId + 1)
+
+        return newId
+    }
+
+let lobbyCreationRequestValid (request: LobbyCreationRequest) =
+    if request.maxPlayers <= 1 then false else true
 
 /// An example of explicitly fetching websocket errors and handling them in your codebase.
 let wsWithErrorHandling (webSocket: WebSocket) (context: HttpContext) =
@@ -346,7 +356,7 @@ let wsWithErrorHandling (webSocket: WebSocket) (context: HttpContext) =
         new MailboxProcessor<OutboxMessage>(fun processor ->
             let rec messageLoop () =
                 async {
-                    let! msg = processor.Receive()
+                    let! msg = processor.Receive(standardMailboxTimeoutMs)
 
                     let! sendingSuccess =
                         match msg with
@@ -373,7 +383,7 @@ let wsWithErrorHandling (webSocket: WebSocket) (context: HttpContext) =
 
                 let rec messageLoop (currentState: ConnectionState) =
                     async {
-                        let! msg = processor.Receive()
+                        let! msg = processor.Receive(standardMailboxTimeoutMs)
 
                         let! newState =
                             match currentState with
@@ -383,8 +393,83 @@ let wsWithErrorHandling (webSocket: WebSocket) (context: HttpContext) =
                                     match inboxNotification with
                                     | WebsocketClientMessage websocketClientMessage ->
                                         match websocketClientMessage with
-                                        | LobbyCreationRequest foo -> failwith "todo"
-                                        | LobbyJoinRequest foo -> failwith "todo"
+                                        | LobbyCreationRequest requestPayload when
+                                            not (lobbyCreationRequestValid requestPayload)
+                                            ->
+                                            outbox.Post(
+                                                WebsocketServerMessage(
+                                                    WebsocketServerMessage.LobbyCreationFailure
+                                                        {| comment = Some($"Invalid lobby creation request") |}
+                                                )
+                                            )
+
+                                            currentState |> Async.result
+                                        | LobbyCreationRequest requestPayload ->
+                                            async {
+                                                use! locking =
+                                                    initialDomain.lobbies.Write().AsTask() |> Async.AwaitTask
+
+                                                let mutable lobbies = locking
+                                                let! newLobbyId = getNewLobbyId ()
+
+                                                let newLobbyInfo: LobbyInfo =
+                                                    {| host = thisPlayer
+                                                       id = newLobbyId
+                                                       maxPlayers = requestPayload.maxPlayers
+                                                       name = requestPayload.lobbyName
+                                                       password = requestPayload.password |}
+
+                                                lobbies.Value <- List.Cons(newLobbyInfo, lobbies.Value)
+
+                                                let newLobbyReplica: LobbyReplica =
+                                                    {| info = newLobbyInfo
+                                                       players = Map [ thisPlayerId, thisPlayer ] |}
+
+                                                outbox.Post(
+                                                    WebsocketServerMessage(
+                                                        WebsocketServerMessage.LobbyCreationSuccess
+                                                            {| assignedLobbyId = newLobbyId |}
+                                                    )
+                                                )
+
+                                                return
+                                                    InsideLobby
+                                                        {| domain = chosenDomainState.domain
+                                                           lobby = newLobbyReplica |}
+                                            }
+                                        | LobbyJoinRequest requestPayload ->
+                                            async {
+                                                use! lobbies = initialDomain.lobbies.Read().AsTask() |> Async.AwaitTask
+
+                                                let searchedLobby =
+                                                    lobbies.Value
+                                                    |> Seq.tryFind (fun lobby -> lobby.id = requestPayload.lobbyId)
+
+                                                match searchedLobby with
+                                                | None ->
+                                                    outbox.Post(
+                                                        WebsocketServerMessage(
+                                                            WebsocketServerMessage.LobbyJoinFailure
+                                                                {| comment =
+                                                                    Some(
+                                                                        $"Could not find the lobby with id {requestPayload.lobbyId}"
+                                                                    ) |}
+                                                        )
+                                                    )
+                                                | Some lobby ->
+                                                    lobby.host.inbox.Post(
+                                                        InboxRequest(
+                                                            {| callbackProcessor = inbox
+                                                               request =
+                                                                InboxRequest.LobbyConnectionRequest
+                                                                    {| lobbyId = lobby.id
+                                                                       player = thisPlayer |} |}
+                                                        )
+                                                    )
+
+                                                return currentState
+                                            }
+
                                         | LobbyLeaveRequest ->
                                             failwith "invalid message to get while NOT in lobby: LOG IT SOMEHOW?"
                                     | InboxNotification.LobbyJoinSuccess messagePayload ->
@@ -400,7 +485,7 @@ let wsWithErrorHandling (webSocket: WebSocket) (context: HttpContext) =
                                         outbox.Post(
                                             WebsocketServerMessage(
                                                 WebsocketServerMessage.PlayersChangeNotification
-                                                    {| updatedPlayers = initialLobbyReplica.players |}
+                                                    {| updatedPlayers = initialLobbyReplica.players.Keys |}
                                             )
                                         )
 
@@ -416,7 +501,7 @@ let wsWithErrorHandling (webSocket: WebSocket) (context: HttpContext) =
                                         )
 
                                         currentState |> Async.result
-                                    | LobbyReplicaUpdate foo ->
+                                    | LobbyReplicaUpdate requestPayload ->
                                         failwith "invalid message to get while NOT in lobby: LOG IT SOMEHOW?"
                                 | InboxRequest requestDescription ->
                                     match requestDescription.request with
@@ -440,7 +525,7 @@ let wsWithErrorHandling (webSocket: WebSocket) (context: HttpContext) =
                                         outbox.Post(
                                             WebsocketServerMessage(
                                                 WebsocketServerMessage.PlayersChangeNotification
-                                                    {| updatedPlayers = newLobbyReplica.players |}
+                                                    {| updatedPlayers = newLobbyReplica.players.Keys |}
                                             )
                                         )
 
@@ -544,18 +629,12 @@ let wsWithErrorHandling (webSocket: WebSocket) (context: HttpContext) =
                         return! messageLoop newState
                     }
 
-                messageLoop ConnectionState.JustJoined)
+                messageLoop (ConnectionState.ChosenDomain {| domain = initialDomain |}))
+
+        inbox.Start()
 
         let rec messageHandling (message: WebsocketClientMessage) =
-            connectionsInformation
-            |> LockableDictionary.withLockOnKeyAsync connectionId (fun connectionInfo ->
-                messageHandlingWorkflow message connectionInfo webSocket connectionId
-                |> Async.map (fun res ->
-                    match res with
-                    | Choice1Of2 newConnectionInfo -> (Choice1Of2(), newConnectionInfo)
-                    // NOTE: putting default connectionInfo back since I didn't figure out how to safely remove entries from this lockable dictionary yet
-                    // TODO: figure this out ^
-                    | Choice2Of2 error -> ((Choice2Of2 error), ConnectionInfo.create ())))
+            socket { inbox.Post(InboxNotification(InboxNotification.WebsocketClientMessage message)) }
 
 
         let websocketWorkflow = websocketListen webSocket context messageHandling

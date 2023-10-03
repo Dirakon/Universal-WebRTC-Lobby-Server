@@ -11,7 +11,6 @@ open Suave.WebSocket
 
 open Newtonsoft.Json
 open WebSocket_Matchmaking_Server.Domain
-open WebSocket_Matchmaking_Server.MessagingDomain
 open YoLo
 
 let websocketListen (webSocket: WebSocket) (context: HttpContext) (handleMessage: WebSocketMessageHandling) =
